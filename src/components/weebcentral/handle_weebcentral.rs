@@ -1,36 +1,42 @@
+use std::path::PathBuf;
+
 use reqwest::Client;
 use scraper::{self, Selector, Html};
 
-use crate::{components
-    ::utils::{
-    create_api_call,
-    image_downloader, 
-    write_chap_dir,
-    setup_domaine_api,
-    random_delay
+use crate::{
+    utils::{
+        api_helper::{setup_domaine_api, create_api_call},
+        image_helpers::{image_downloader, download_cover},
+        chapter_dir_helpers::{write_chap_dir, complete_chapter, check_completed_marker},
+        misc::{random_delay},
     },
-    errors::ErrorVals, ScrapedData
+    errors::ErrorVals, 
+    ScrapedData,
 };
 
 
-async fn scrape_images(chapter_link: &str, data: &ScrapedData, chap_num: usize) -> Result<(), ErrorVals>
+async fn scrape_images(chapter_link: &str, data: &ScrapedData, chap_num: usize, client: &Client) -> Result<(), ErrorVals>
 {
+
     let chap_dir = match write_chap_dir(data, chap_num)? {
         Some(chap_dir) => chap_dir,
         None => {
-            println!("Skipping chapter {}: it alreadt exists", chap_num + 1);
-            return Ok(());
+            let chap_dir: PathBuf = data.manga_path.join(format!("chapter_{}", chap_num + 1));
+
+            if check_completed_marker(&chap_dir) {
+                println!("Chapter {} was already completed, skipping to the next chapter !", chap_num + 1);
+                return Ok(());
+            }
+            println!("Chapter {} was incomplete, resuming download of the chapter", chap_num + 1);
+            chap_dir
         }
     };
 
-    let api_call = create_api_call(chapter_link, data)?;
+    let api_call = create_api_call(chapter_link)?;
 
-    let page_client = Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")
-        .build()?;
-
-    let chap_resp = page_client
-        .get(api_call)
+    let chap_resp = client
+        .get(&api_call)
+        .header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")
         .send()
         .await?;
 
@@ -44,10 +50,17 @@ async fn scrape_images(chapter_link: &str, data: &ScrapedData, chap_num: usize) 
                 imgs_collection.push(img_page.to_string());
         }
     }
-    for (idx,page_link) in imgs_collection.iter().enumerate() {
-        println!("downloading: {}", page_link);
-        image_downloader(&page_link, idx, &chap_dir).await?;
+
+    if imgs_collection.is_empty() {
+        println!("{}", ErrorVals::PagesNotFound);
+        return Err(ErrorVals::PagesNotFound);
     }
+
+    for (idx,page_link) in imgs_collection.iter().enumerate() {
+        println!("[{}/{}] Downloading: {}", idx + 1, imgs_collection.len(), page_link);
+        image_downloader(&page_link, idx, &chap_dir, data, client).await?;
+    }
+    complete_chapter(&chap_dir, data, chap_num)?;
     Ok(())
 }
 
@@ -68,6 +81,8 @@ pub async fn scrape_weebcentral(data: &ScrapedData) -> Result<(), ErrorVals>
     let web_content = web_rep.text().await?;
     let docu = Html::parse_document(&web_content);
     let a_selector = Selector::parse("a").unwrap();
+
+    download_cover(data).await?;
 
     let mut current_chaps = 0;
     for link in docu.select(&a_selector) {
@@ -93,7 +108,7 @@ pub async fn scrape_weebcentral(data: &ScrapedData) -> Result<(), ErrorVals>
 
     println!("Number of chapters = {}", chapter_links.len());
     for (chap_num, link) in chapter_links.iter().rev().enumerate() {
-        scrape_images(&link, data, chap_num).await?;
+        scrape_images(&link, data, chap_num, &client).await?;
         random_delay().await;
     }
     println!("{} has been scraped", data.title);

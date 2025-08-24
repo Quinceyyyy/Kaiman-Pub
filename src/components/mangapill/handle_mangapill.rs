@@ -1,13 +1,16 @@
 use reqwest::{Client, Url};
 use scraper::{self, Selector, Html};
 use tokio::time::{sleep, Duration};
+use std::path::PathBuf;
 
-
-use crate::{components
-    ::utils::{
-    image_downloader, random_delay, write_chap_dir
-    }, 
-    errors::ErrorVals, ScrapedData
+use crate::{
+    utils::{
+        image_helpers::{image_downloader},
+        chapter_dir_helpers::{write_chap_dir, complete_chapter, check_completed_marker},
+        misc::{random_delay},
+    },
+    errors::ErrorVals, 
+    ScrapedData,
 };
 
 
@@ -16,8 +19,14 @@ async fn scrape_imgs(chapter_link: &str, data: &ScrapedData, chap_num: usize, ta
     let chap_dir = match write_chap_dir(data, chap_num)? {
         Some(chap_dir) => chap_dir,
         None => {
-            println!("Skipping chapter {}: it already exists", chap_num + 1);
-            return Ok(());
+            let chap_dir: PathBuf = data.manga_path.join(format!("chapter_{}", chap_num + 1));
+
+            if check_completed_marker(&chap_dir) {
+                println!("Chapter {} was already completed, skipping to the next chapter !", chap_num + 1);
+                return Ok(());
+            }
+            println!("Chapter {} was incomplete, resuming download of the chapter", chap_num + 1);
+            chap_dir
         }
     };
     let web_url = Url::parse("https://mangapill.com").unwrap();
@@ -40,9 +49,10 @@ async fn scrape_imgs(chapter_link: &str, data: &ScrapedData, chap_num: usize, ta
     }
     for (idx,page_link) in imgs_collection.iter().enumerate() {
         println!("downloading: {}", page_link);
-        image_downloader(&page_link, idx, &chap_dir).await?;
+        image_downloader(&page_link, idx, &chap_dir, data, target_client).await?;
         sleep(Duration::from_millis(500)).await;
     }
+    complete_chapter(&chap_dir, data, chap_num)?;
     Ok(())
 }
 

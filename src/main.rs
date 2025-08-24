@@ -4,9 +4,11 @@ use std::path::PathBuf;
 
 mod components;
 mod errors;
+mod utils;
 
 use components:: {
     handle_input::pre_scrape_setup,
+    write_user_path::{ check_input_path, read_save_file },
 };
 
 use crate::{errors::ErrorVals};
@@ -17,12 +19,11 @@ struct ScrapedData {
     title: String,
     series_id: String,
     input_url: String,
-    _current_chap: i32,
-    given_chap: i32,
+    user_path: String,
+    _current_chap: u32,
+    given_chap: u32,
     pub manga_path: PathBuf,
 }
-
-pub const MANGA_LIB_PATH: &str = "/home/fred/Documents/Manga-Lib";
 
 #[tokio::main]
 async fn main() -> Result<(),  errors::ErrorVals>
@@ -34,12 +35,23 @@ async fn main() -> Result<(),  errors::ErrorVals>
     }
 
     let mut data = ScrapedData::default();
-    data.input_url = String::from(&args[1]);
 
-    if args.len() > 2 && !&args[2].is_empty() {
-        match args[2].parse::<i32>() {
+    if args.len() == 2 {
+        data.input_url = args[1].clone();
+        data.user_path = read_save_file();
+        check_input_path(&data)?;
+        pre_scrape_setup(&mut data).await?;
+        return Ok(());
+    }
+    data.user_path = args[1].clone();
+    data.input_url = args[2].clone();
+
+    check_input_path(&data)?;
+    read_save_file();
+    if args.len() > 2 && !&args[3].is_empty() {
+        match args[3].parse::<u32>() {
             Ok(chapter) => data.given_chap = chapter,
-            Err(_) => { eprintln!("{} is not a chapter number", args[2]); exit(-1);}
+            Err(_) => { eprintln!("{} is not a chapter number", args[3]); exit(-1);}
         }
     }
     pre_scrape_setup(&mut data).await?;

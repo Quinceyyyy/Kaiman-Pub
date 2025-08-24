@@ -7,9 +7,12 @@ pub enum ErrorVals {
     NoURL,
     InvalidWebsite,
     InvalidURL,
+    InvalidPath,
     SeriesNotFound,
     SurpriseError,
     ChaptersNotFound,
+    PagesNotFound,
+    CoverNotFound,
     HttpError(reqwest::Error),
     IoError(io::Error),
 }
@@ -37,6 +40,9 @@ impl fmt::Display for ErrorVals {
             ErrorVals::InvalidURL => write!(f, "Invalid URL"),
             ErrorVals::SurpriseError => write!(f, "Unexpected Error"),
             ErrorVals::ChaptersNotFound => write!(f, "No chapters found"),
+            ErrorVals::InvalidPath => write!(f, "Input path doesn't exist"),
+            ErrorVals::PagesNotFound => write!(f, "Error finding chapter pages"),
+            ErrorVals::CoverNotFound => write!(f, "Error finding cover art"),
         }
     }
 }
